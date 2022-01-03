@@ -16,6 +16,7 @@ var cfg Config
 var wrt Writer
 var targetURL *url.URL
 var excludeRegexp *regexp.Regexp
+var proxy *httputil.ReverseProxy
 
 func getExcludeRegexp(exclude string) *regexp.Regexp {
 	regex, err := regexp.Compile(exclude)
@@ -36,24 +37,7 @@ func getTargetURL(targetHostDsn string) *url.URL {
 }
 
 func handleRequest(response http.ResponseWriter, request *http.Request) {
-	proxy := newSingleHostReverseProxy(targetURL)
-	proxy.ModifyResponse = logResponse
-
 	proxy.ServeHTTP(response, request)
-}
-
-func logRequest(request *http.Request) (err error) {
-	if !cfg.LoggingEnabled {
-		return nil
-	}
-
-	if cfg.Exclude != "" {
-		if excludeRegexp.MatchString(request.URL.Path) {
-			return nil
-		}
-	}
-
-	return wrt.LogRequest(request)
 }
 
 func logResponse(response *http.Response) (err error) {
@@ -76,6 +60,9 @@ func Run(c *Config, w Writer) {
 
 	targetURL = getTargetURL(cfg.TargetHostDsn)
 	excludeRegexp = getExcludeRegexp(cfg.Exclude)
+
+	proxy = newSingleHostReverseProxy(targetURL)
+	proxy.ModifyResponse = logResponse
 
 	http.HandleFunc("/", handleRequest)
 	if err := http.ListenAndServe(fmt.Sprintf("%s:%s", cfg.ListenIp, cfg.ListenPort), nil); err != nil {
@@ -145,11 +132,11 @@ func newSingleHostReverseProxy(target *url.URL) *httputil.ReverseProxy {
 		for key, value := range cfg.Headers {
 			req.Header.Set(key, value)
 		}
-
-		logRequest(req)
 	}
 
-	return &httputil.ReverseProxy{Director: director}
+	transport := newProfilingTransport()
+
+	return &httputil.ReverseProxy{Director: director, Transport: transport}
 }
 
 func singleJoiningSlash(a, b string) string {

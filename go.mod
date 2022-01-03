@@ -1,4 +1,4 @@
-module github.com/restinthemiddle/core
+module github.com/restinthemiddle/core/v2
 
 go 1.17
 
